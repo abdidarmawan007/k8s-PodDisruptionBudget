@@ -48,7 +48,7 @@ metadata:
   name: your-microservice
   namespace: your-namespace
 spec:
-  minAvailable: 50% # 50% is just to keep the example simple, it is not the recommended value
+  minAvailable: 30% # 30% is just to keep the example simple, it is not the recommended value
   selector:
   matchLabels:
       app: your-microservice
