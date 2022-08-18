@@ -1,0 +1,162 @@
+# PodDisruptionBudget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: staging-test
+  namespace: staging
+spec:
+  minAvailable: 30%
+  selector:
+    matchLabels:
+      app: staging-test
+---
+# deployment  
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: staging-test
+  namespace: staging
+spec:
+  replicas: 1
+  revisionHistoryLimit: 6
+  minReadySeconds: 6
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+     maxUnavailable: 0
+     maxSurge: 20%
+  selector:
+    matchLabels:
+      app: staging-test  
+  template:
+    metadata:
+      labels:
+        app: staging-test
+        env: staging
+      annotations:
+         sidecar.istio.io/rewriteAppHTTPProbers: "false"
+         cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+    spec:     
+      containers:
+      - name: staging-test
+        image: nginxdemos/nginx-hello:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        resources:
+            requests:
+               cpu: "100m"
+               memory: "250Mi"
+            limits:
+               cpu: "400m"
+               memory: "600Mi"
+        readinessProbe:
+          httpGet:
+              path: /
+              port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 6
+        livenessProbe:
+           httpGet:
+              path: /
+              port: 8080
+           initialDelaySeconds: 10
+           periodSeconds: 6
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh", "-c", "sleep 6"]
+---              
+# service
+apiVersion: v1
+kind: Service
+metadata:
+  name: staging-test
+  namespace: staging
+  labels:
+    app: staging-test
+spec:
+  selector:
+    app: staging-test
+  ports:
+  - port: 8080
+    name: http
+    protocol: TCP
+    targetPort: 8080
+---
+# auto scaling pods v2
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: staging-test
+  namespace: staging
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: staging-test
+  minReplicas: 1
+  maxReplicas: 15
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  behavior:
+   scaleDown:
+    stabilizationWindowSeconds: 300
+    policies:
+    - type: Pods
+      value: 1
+      periodSeconds: 60
+    - type: Percent
+      value: 10
+      periodSeconds: 60
+    selectPolicy: Min  
+   scaleUp:
+    stabilizationWindowSeconds: 0
+    policies:
+    - type: Percent
+      value: 100
+      periodSeconds: 10
+    - type: Pods
+      value: 4
+      periodSeconds: 10
+    selectPolicy: Max 
+---
+## Destination Rule
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: staging-test
+  namespace: staging
+spec:
+  host: staging-test
+#  trafficPolicy:
+#      tls:
+#        mode: SIMPLE
+---
+## Virtual Service
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: staging-test
+  namespace: staging
+spec:
+  hosts:
+  -  staging-test.abdidarmawan.com
+  gateways:
+  - staging-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+#    - uri:
+#        prefix: /v1/xxx
+    route:
+    - destination:
+        host: staging-test
+        port:
+          number: 8080
