@@ -48,7 +48,7 @@ metadata:
   name: your-microservice
   namespace: your-namespace
 spec:
-  minAvailable: 30% # minimum config replica deployment = 2 replica
+  minAvailable: 30%
   selector:
   matchLabels:
       app: your-microservice
